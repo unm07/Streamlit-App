@@ -1,0 +1,9 @@
+streamlit>=1.25.0
+python-dotenv>=1.0.0
+PyMuPDF>=1.22.0
+langchain-core>=0.0.1
+langchain-google-genai>=0.1.0
+langchain-chroma>=0.1.0
+langchain-community>=0.1.0
+flashrank>=0.1.0
+rank_bm25
