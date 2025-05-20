@@ -9,3 +9,4 @@ flashrank>=0.1.0
 rank_bm25
 protobuf<4.0.0
 setuptools
+faiss-cpu
