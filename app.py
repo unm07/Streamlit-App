@@ -79,7 +79,7 @@ docs = vectordb = None
 if uploaded_file:
     with st.spinner("Processing PDF..."):
         text = extract_pdf_text(uploaded_file.read())
-        docs = split_documents(text);
+        docs = split_documents(text)
         vectordb = get_vector_store(docs)
 
 # Display chat history
@@ -88,16 +88,25 @@ for q, a in st.session_state.history:
     st.markdown(f"**Bot:** {a}")
     st.markdown("---")
 
-# Chat form
-with st.form(key="chat_form", clear_on_submit=True):
-    query = st.text_input("Enter your question:")
-    submit = st.form_submit_button("Send")
+# Fixed bottom input box
+st.markdown(
+    "<style>"
+    ".fixed-chat { position: fixed; bottom: 0; left: 0; width: 100%; background-color: white; padding: 10px; box-shadow: 0 -2px 5px rgba(0,0,0,0.1);}"
+    "</style>", unsafe_allow_html=True
+)
+with st.container():
+    st.markdown("<div class='fixed-chat'>", unsafe_allow_html=True)
+    col1, col2 = st.columns([8,1])
+    with col1:
+        query = st.text_input("Enter your question:", key="bottom_input")
+    with col2:
+        send = st.button("Send", key="bottom_send")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-if submit and query:
+if send and query:
     if docs and vectordb and "document" in query.lower():
         answer = respond_with_docs(query, docs, vectordb)
     else:
         answer = respond_general(query)
     st.session_state.history.append((query, answer))
-    # Streamlit auto-reruns after form submit
     st.rerun()
