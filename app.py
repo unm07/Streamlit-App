@@ -10,6 +10,7 @@ from langchain.retrievers.document_compressors import FlashrankRerank
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain.vectorstores import FAISS
+from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
