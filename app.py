@@ -11,6 +11,7 @@ from langchain.retrievers.document_compressors import FlashrankRerank
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain.vectorstores import FAISS
+from langchain.memory import ConversationBufferMemory
 
 # Load environment variables
 load_dotenv()
@@ -20,15 +21,19 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # Streamlit UI
 st.set_page_config(layout="wide")
-st.title("chatbot")
+st.title("chatbot with memory")
 
 # Sidebar: compact PDF upload
 with st.sidebar.expander("📄 Upload PDF (optional)", expanded=False):
     uploaded_file = st.file_uploader("PDF file", type=["pdf"])
 
-# Initialize session state for history
+# Initialize session state for history and memory
 if "history" not in st.session_state:
     st.session_state.history = []
+if "memory_general" not in st.session_state:
+    st.session_state.memory_general = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+if "memory_docs" not in st.session_state:
+    st.session_state.memory_docs = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
 # PDF processing functions
 @st.cache_data(show_spinner=False)
@@ -55,7 +60,7 @@ def hybrid_retriever(query, docs, vectordb, k=5):
     sparse = BM25Retriever.from_documents(documents=docs, bm25_params={"k1":1.2, "b":0.75}, k=k)
     return vec.get_relevant_documents(query) + sparse.get_relevant_documents(query)
 
-# QA chains
+# QA chains with memory
 def respond_with_docs(query, docs, vectordb):
     results = hybrid_retriever(query, docs, vectordb)
     reranker = FlashrankRerank(client=Ranker(model_name="ms-marco-MiniLM-L-12-v2"), model="ms-marco-MiniLM-L-12-v2", top_n=5)
@@ -63,15 +68,28 @@ def respond_with_docs(query, docs, vectordb):
     doc_text = "\n\n".join(f"[Score: {d.metadata.get('relevance_score')}]: {d.page_content}" for d in reranked)
     prompt = PromptTemplate(
         input_variables=["documents","query"],
-        template=("You are an expert assistant. Use the following excerpts to answer. "
-                  "If not present, use your knowledge.\n\nDocuments:\n{documents}\n\nQuestion:\n{query}\n\nAnswer:\n")
+        template=("You are an expert assistant with context memory. Use the following excerpts to answer. "
+                  "If not present, use your knowledge. Include conversation history where relevant.\n\n"
+                  "Chat History:\n{chat_history}\n\nDocuments:\n{documents}\n\nQuestion:\n{query}\n\nAnswer:\n")
     )
-    chain = LLMChain(llm=ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0), prompt=prompt)
+    chain = LLMChain(
+        llm=ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0),
+        prompt=prompt,
+        memory=st.session_state.memory_docs
+    )
     return chain.run({"documents": doc_text, "query": query})
 
+
 def respond_general(query):
-    prompt = PromptTemplate(input_variables=["query"], template="You are a helpful assistant. Answer: {query}")
-    chain = LLMChain(llm=ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0), prompt=prompt)
+    prompt = PromptTemplate(
+        input_variables=["query"],
+        template=("You are a helpful assistant with short-term context. Chat History:\n{chat_history}\n\nAnswer the question: {query}")
+    )
+    chain = LLMChain(
+        llm=ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0),
+        prompt=prompt,
+        memory=st.session_state.memory_general
+    )
     return chain.run({"query": query})
 
 # Process PDF
@@ -99,5 +117,4 @@ if submit and query:
     else:
         answer = respond_general(query)
     st.session_state.history.append((query, answer))
-    # Streamlit auto-reruns after form submit
     st.rerun()
