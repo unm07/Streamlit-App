@@ -67,13 +67,13 @@ def respond_with_docs(query, docs, vectordb):
     reranked = reranker.compress_documents(results, query)
     doc_text = "\n\n".join(f"[Score: {d.metadata.get('relevance_score')}]: {d.page_content}" for d in reranked)
     
-    # Fixed prompt template - include chat_history in input_variables
+    # Create a single input by combining documents and query
     prompt = PromptTemplate(
-        input_variables=["chat_history", "documents", "query"],
+        input_variables=["input"],
         template=(
             "You are an expert assistant with context memory. Use the following excerpts to answer. "
             "If not present, use your knowledge. Include conversation history where relevant.\n\n"
-            "Chat History:\n{chat_history}\n\nDocuments:\n{documents}\n\nQuestion:\n{query}\n\nAnswer:\n"
+            "Chat History:\n{chat_history}\n\n{input}\n\nAnswer:\n"
         )
     )
     chain = LLMChain(
@@ -81,16 +81,17 @@ def respond_with_docs(query, docs, vectordb):
         prompt=prompt,
         memory=st.session_state.memory_docs
     )
-    # Use invoke with all required parameters
-    return chain.invoke({"documents": doc_text, "query": query})["text"]
+    # Combine documents and query into a single input
+    combined_input = f"Documents:\n{doc_text}\n\nQuestion: {query}"
+    return chain.run(combined_input)
 
 
 def respond_general(query):
     prompt = PromptTemplate(
-        input_variables=["chat_history", "query"],
+        input_variables=["input"],
         template=(
             "You are a helpful assistant with short-term context. Chat History:\n{chat_history}\n\n"
-            "Answer the question: {query}"
+            "Question: {input}"
         )
     )
     chain = LLMChain(
@@ -98,8 +99,7 @@ def respond_general(query):
         prompt=prompt,
         memory=st.session_state.memory_general
     )
-    # Use invoke instead of run for consistency
-    return chain.invoke({"query": query})["text"]
+    return chain.run(query)
 
 # Process PDF
 docs = vectordb = None
