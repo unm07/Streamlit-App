@@ -66,8 +66,10 @@ def respond_with_docs(query, docs, vectordb):
     reranker = FlashrankRerank(client=Ranker(model_name="ms-marco-MiniLM-L-12-v2"), model="ms-marco-MiniLM-L-12-v2", top_n=5)
     reranked = reranker.compress_documents(results, query)
     doc_text = "\n\n".join(f"[Score: {d.metadata.get('relevance_score')}]: {d.page_content}" for d in reranked)
+    
+    # Fixed prompt template - include chat_history in input_variables
     prompt = PromptTemplate(
-        input_variables=["documents","query"],
+        input_variables=["chat_history", "documents", "query"],
         template=(
             "You are an expert assistant with context memory. Use the following excerpts to answer. "
             "If not present, use your knowledge. Include conversation history where relevant.\n\n"
@@ -79,13 +81,13 @@ def respond_with_docs(query, docs, vectordb):
         prompt=prompt,
         memory=st.session_state.memory_docs
     )
-    # Use predict when multiple inputs are required
-    return chain.predict(documents=doc_text, query=query)
+    # Use invoke with all required parameters
+    return chain.invoke({"documents": doc_text, "query": query})["text"]
 
 
 def respond_general(query):
     prompt = PromptTemplate(
-        input_variables=["query"],
+        input_variables=["chat_history", "query"],
         template=(
             "You are a helpful assistant with short-term context. Chat History:\n{chat_history}\n\n"
             "Answer the question: {query}"
@@ -96,8 +98,8 @@ def respond_general(query):
         prompt=prompt,
         memory=st.session_state.memory_general
     )
-    # For a single input key, run() works fine
-    return chain.run(query)
+    # Use invoke instead of run for consistency
+    return chain.invoke({"query": query})["text"]
 
 # Process PDF
 docs = vectordb = None
