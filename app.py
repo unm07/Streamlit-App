@@ -25,7 +25,9 @@ st.title("chatbot")
 # Upload PDF
 uploaded_file = st.file_uploader("Drag and drop a PDF file here", type=["pdf"])
 
-# Chat input visible regardless of upload
+# Chat input always visible
+docs = None
+vectordb = None
 query = st.text_input("Enter your question:")
 
 @st.cache_data(show_spinner=False)
@@ -45,11 +47,10 @@ def split_documents(text):
 @st.cache_resource(show_spinner=False)
 def get_vector_store(_docs):
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    # vectordb = Chroma.from_documents(documents=_docs, embedding=embeddings)
     vectordb = FAISS.from_documents(_docs, embedding=embeddings)
     return vectordb
 
-# hybrid retrieval(dense+sparse)
+# Hybrid retrieval (dense + sparse)
 def hybrid_retriever(query, docs, vectordb, k=5):
     vector_retriever = vectordb.as_retriever(search_kwargs={"k": k})
     sparse_retriever = BM25Retriever.from_documents(
@@ -61,11 +62,7 @@ def hybrid_retriever(query, docs, vectordb, k=5):
     sparse_results = sparse_retriever.get_relevant_documents(query)
     return vector_results + sparse_results
 
-# Initialize storage
-docs = None
-vectordb = None
-
-# Process PDF if uploaded
+# Process PDF when uploaded
 def process_uploaded_file(pdf_bytes):
     text = extract_pdf_text(pdf_bytes)
     docs_local = split_documents(text)
@@ -77,20 +74,12 @@ if uploaded_file is not None:
         docs, vectordb = process_uploaded_file(uploaded_file.read())
 
 # Handle query
-if query:
-    if docs is None or vectordb is None:
-        st.warning("Please upload a PDF to enable document-based question answering.")
-    else:
-        with st.spinner("Retrieving relevant documents..."):
-            initial_docs = hybrid_retriever(query, docs, vectordb, k=5)
-
-        # Rerank
-        flashrank_client = Ranker(model_name="ms-marco-MiniLM-L-12-v2")
-        reranker = FlashrankRerank(client=flashrank_client, model="ms-marco-MiniLM-L-12-v2", top_n=5)
-        reranked = reranker.compress_documents(initial_docs, query)
-
-        # Prepare prompt
-        template = '''
+def respond_with_docs(query):
+    initial_docs = hybrid_retriever(query, docs, vectordb, k=5)
+    flashrank_client = Ranker(model_name="ms-marco-MiniLM-L-12-v2")
+    reranker = FlashrankRerank(client=flashrank_client, model="ms-marco-MiniLM-L-12-v2", top_n=5)
+    reranked = reranker.compress_documents(initial_docs, query)
+    template = '''
 You are an expert assistant. Use the following retrieved document excerpts to answer the user's question.
 If the answer isn't contained in the excerpts, use your general knowledge.
 
@@ -102,24 +91,35 @@ Question:
 
 Answer:
 '''
-        prompt = PromptTemplate(input_variables=["documents", "query"], template=template)
-        llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
-        chain = LLMChain(llm=llm, prompt=prompt)
+    prompt = PromptTemplate(input_variables=["documents", "query"], template=template)
+    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
+    chain = LLMChain(llm=llm, prompt=prompt)
+    docs_text = "\n\n".join(
+        f"[Score: {d.metadata.get('relevance_score', 'N/A')}] {d.page_content}"
+        for d in reranked
+    )
+    return chain.run({"documents": docs_text, "query": query}), reranked
 
-        # Format documents for chain
-        docs_text = "\n\n".join(
-            f"[Score: {d.metadata.get('relevance_score', 'N/A')}] {d.page_content}"
-            for d in reranked
-        )
-        with st.spinner("Generating answer..."):
-            answer = chain.run({"documents": docs_text, "query": query})
+def respond_general(query):
+    prompt = PromptTemplate(input_variables=["query"], template="You are a helpful assistant. Answer the question: {query}")
+    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
+    chain = LLMChain(llm=llm, prompt=prompt)
+    return chain.run({"query": query})
 
+if query:
+    if docs is not None and vectordb is not None:
+        with st.spinner("Retrieving relevant documents..."):
+            answer, reranked = respond_with_docs(query)
         st.subheader("Answer")
         st.write(answer)
-
         if st.checkbox("Show retrieved passages"):
             st.subheader("Top Passages")
             for i, d in enumerate(reranked, start=1):
                 st.markdown(f"**Passage {i} (Score: {d.metadata.get('relevance_score', 'N/A')})**")
                 st.write(d.page_content)
                 st.markdown("---")
+    else:
+        with st.spinner("Generating response..."):
+            answer = respond_general(query)
+        st.subheader("Answer")
+        st.write(answer)
