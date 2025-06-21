@@ -21,7 +21,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # Streamlit UI
 st.set_page_config(layout="wide")
-st.title("chatbot with memory")
+st.title("AI Chatbot")
 
 # Sidebar: compact PDF upload
 with st.sidebar.expander("📄 Upload PDF", expanded=False):
