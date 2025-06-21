@@ -68,29 +68,36 @@ def respond_with_docs(query, docs, vectordb):
     doc_text = "\n\n".join(f"[Score: {d.metadata.get('relevance_score')}]: {d.page_content}" for d in reranked)
     prompt = PromptTemplate(
         input_variables=["documents","query"],
-        template=("You are an expert assistant with context memory. Use the following excerpts to answer. "
-                  "If not present, use your knowledge. Include conversation history where relevant.\n\n"
-                  "Chat History:\n{chat_history}\n\nDocuments:\n{documents}\n\nQuestion:\n{query}\n\nAnswer:\n")
+        template=(
+            "You are an expert assistant with context memory. Use the following excerpts to answer. "
+            "If not present, use your knowledge. Include conversation history where relevant.\n\n"
+            "Chat History:\n{chat_history}\n\nDocuments:\n{documents}\n\nQuestion:\n{query}\n\nAnswer:\n"
+        )
     )
     chain = LLMChain(
         llm=ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0),
         prompt=prompt,
         memory=st.session_state.memory_docs
     )
-    return chain.run({"documents": doc_text, "query": query})
+    # Use predict when multiple inputs are required
+    return chain.predict(documents=doc_text, query=query)
 
 
 def respond_general(query):
     prompt = PromptTemplate(
         input_variables=["query"],
-        template=("You are a helpful assistant with short-term context. Chat History:\n{chat_history}\n\nAnswer the question: {query}")
+        template=(
+            "You are a helpful assistant with short-term context. Chat History:\n{chat_history}\n\n"
+            "Answer the question: {query}"
+        )
     )
     chain = LLMChain(
         llm=ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0),
         prompt=prompt,
         memory=st.session_state.memory_general
     )
-    return chain.run({"query": query})
+    # For a single input key, run() works fine
+    return chain.run(query)
 
 # Process PDF
 docs = vectordb = None
