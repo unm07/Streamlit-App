@@ -88,25 +88,22 @@ for q, a in st.session_state.history:
     st.markdown(f"**Bot:** {a}")
     st.markdown("---")
 
-# Fixed bottom input box
+# CSS for fixed bottom
 st.markdown(
-    "<style>"
-    ".fixed-chat { position: fixed; bottom: 0; left: 0; width: 100%; background-color: white; padding: 10px; box-shadow: 0 -2px 5px rgba(0,0,0,0.1);}"
-    "</style>", unsafe_allow_html=True
+    "<style>.fixed-chat {position: fixed; bottom: 0; left: 0; width: 100%; background-color: white; padding: 10px; box-shadow: 0 -1px 3px rgba(0,0,0,0.1);}</style>",
+    unsafe_allow_html=True
 )
-with st.container():
-    st.markdown("<div class='fixed-chat'>", unsafe_allow_html=True)
-    col1, col2 = st.columns([8,1])
-    with col1:
-        query = st.text_input("Enter your question:", key="bottom_input")
-    with col2:
-        send = st.button("Send", key="bottom_send")
-    st.markdown("</div>", unsafe_allow_html=True)
 
-if send and query:
-    if docs and vectordb and "document" in query.lower():
-        answer = respond_with_docs(query, docs, vectordb)
-    else:
-        answer = respond_general(query)
-    st.session_state.history.append((query, answer))
-    st.rerun()
+# Fixed bottom form
+st.markdown("<div class='fixed-chat'>", unsafe_allow_html=True)
+with st.form(key="chat_form", clear_on_submit=True):
+    query = st.text_input("Enter your question:")
+    submit = st.form_submit_button("Send")
+    if submit and query:
+        if docs and vectordb and "document" in query.lower():
+            answer = respond_with_docs(query, docs, vectordb)
+        else:
+            answer = respond_general(query)
+        st.session_state.history.append((query, answer))
+        st.rerun()
+st.markdown("</div>", unsafe_allow_html=True)
