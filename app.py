@@ -20,10 +20,13 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # Streamlit UI
-st.title("PDF QA App with Hybrid Retrieval and Reranking")
+st.title("chatbot")
 
 # Upload PDF
 uploaded_file = st.file_uploader("Drag and drop a PDF file here", type=["pdf"])
+
+# Chat input visible regardless of upload
+query = st.text_input("Enter your question:")
 
 @st.cache_data(show_spinner=False)
 def extract_pdf_text(pdf_bytes):
@@ -58,18 +61,26 @@ def hybrid_retriever(query, docs, vectordb, k=5):
     sparse_results = sparse_retriever.get_relevant_documents(query)
     return vector_results + sparse_results
 
-if uploaded_file is not None:
-    # Process PDF
-    pdf_bytes = uploaded_file.read()
-    with st.spinner("Extracting text..."):
-        full_text = extract_pdf_text(pdf_bytes)
-    with st.spinner("Splitting into chunks..."):
-        docs = split_documents(full_text)
-    with st.spinner("Building vector store..."):
-        vectordb = get_vector_store(docs)
+# Initialize storage
+docs = None
+vectordb = None
 
-    query = st.text_input("Enter your question:")
-    if query:
+# Process PDF if uploaded
+def process_uploaded_file(pdf_bytes):
+    text = extract_pdf_text(pdf_bytes)
+    docs_local = split_documents(text)
+    vectordb_local = get_vector_store(docs_local)
+    return docs_local, vectordb_local
+
+if uploaded_file is not None:
+    with st.spinner("Extracting text and building index..."):
+        docs, vectordb = process_uploaded_file(uploaded_file.read())
+
+# Handle query
+if query:
+    if docs is None or vectordb is None:
+        st.warning("Please upload a PDF to enable document-based question answering.")
+    else:
         with st.spinner("Retrieving relevant documents..."):
             initial_docs = hybrid_retriever(query, docs, vectordb, k=5)
 
@@ -79,9 +90,9 @@ if uploaded_file is not None:
         reranked = reranker.compress_documents(initial_docs, query)
 
         # Prepare prompt
-        template = """
+        template = '''
 You are an expert assistant. Use the following retrieved document excerpts to answer the user's question.
-If the answer isn't contained in the excerpts, use your general knowledge."
+If the answer isn't contained in the excerpts, use your general knowledge.
 
 Documents:
 {documents}
@@ -90,7 +101,7 @@ Question:
 {query}
 
 Answer:
-"""
+'''
         prompt = PromptTemplate(input_variables=["documents", "query"], template=template)
         llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
         chain = LLMChain(llm=llm, prompt=prompt)
