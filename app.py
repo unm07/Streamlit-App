@@ -100,4 +100,4 @@ if submit and query:
         answer = respond_general(query)
     st.session_state.history.append((query, answer))
     # Streamlit auto-reruns after form submit
-    st.experimental_rerun()
+    st.rerun()
