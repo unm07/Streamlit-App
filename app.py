@@ -45,9 +45,9 @@ def split_documents(text):
     return splitter.create_documents([text])
 
 @st.cache_resource(show_spinner=False)
-def get_vector_store(docs):
+def get_vector_store(_docs):
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    return FAISS.from_documents(docs, embedding=embeddings)
+    return FAISS.from_documents(_docs, embedding=embeddings)
 
 # Retrieval functions
 def hybrid_retriever(query, docs, vectordb, k=5):
@@ -79,7 +79,7 @@ docs = vectordb = None
 if uploaded_file:
     with st.spinner("Processing PDF..."):
         text = extract_pdf_text(uploaded_file.read())
-        docs = split_documents(text);
+        docs = split_documents(text)
         vectordb = get_vector_store(docs)
 
 # Display chat history
