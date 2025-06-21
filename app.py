@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 import fitz
 import streamlit as st
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-# from langchain_chroma import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.retrievers.bm25 import BM25Retriever
 from flashrank import Ranker
@@ -20,16 +19,19 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # Streamlit UI
+st.set_page_config(layout="wide")
 st.title("chatbot")
 
-# Upload PDF
-uploaded_file = st.file_uploader("Drag and drop a PDF file here", type=["pdf"])
+# Sidebar upload (compact)
+with st.sidebar:
+    st.header("Upload PDF")
+    uploaded_file = st.file_uploader("PDF file", type=["pdf"], help="Optional: for document-based QA")
 
-# Chat input always visible
-docs = None
-vectordb = None
-query = st.text_input("Enter your question:")
+# Initialize session state for history
+if "history" not in st.session_state:
+    st.session_state.history = []  # list of (query, answer)
 
+# Process PDF when uploaded
 @st.cache_data(show_spinner=False)
 def extract_pdf_text(pdf_bytes):
     text = ""
@@ -47,8 +49,7 @@ def split_documents(text):
 @st.cache_resource(show_spinner=False)
 def get_vector_store(_docs):
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    vectordb = FAISS.from_documents(_docs, embedding=embeddings)
-    return vectordb
+    return FAISS.from_documents(_docs, embedding=embeddings)
 
 # Hybrid retrieval (dense + sparse)
 def hybrid_retriever(query, docs, vectordb, k=5):
@@ -58,68 +59,53 @@ def hybrid_retriever(query, docs, vectordb, k=5):
         bm25_params={"k1": 1.2, "b": 0.75},
         k=k
     )
-    vector_results = vector_retriever.get_relevant_documents(query)
-    sparse_results = sparse_retriever.get_relevant_documents(query)
-    return vector_results + sparse_results
+    return vector_retriever.get_relevant_documents(query) + sparse_retriever.get_relevant_documents(query)
 
-# Process PDF when uploaded
-def process_uploaded_file(pdf_bytes):
-    text = extract_pdf_text(pdf_bytes)
-    docs_local = split_documents(text)
-    vectordb_local = get_vector_store(docs_local)
-    return docs_local, vectordb_local
-
-if uploaded_file is not None:
-    with st.spinner("Extracting text and building index..."):
-        docs, vectordb = process_uploaded_file(uploaded_file.read())
-
-# Handle query
-def respond_with_docs(query):
-    initial_docs = hybrid_retriever(query, docs, vectordb, k=5)
-    flashrank_client = Ranker(model_name="ms-marco-MiniLM-L-12-v2")
-    reranker = FlashrankRerank(client=flashrank_client, model="ms-marco-MiniLM-L-12-v2", top_n=5)
-    reranked = reranker.compress_documents(initial_docs, query)
-    template = '''
-You are an expert assistant. Use the following retrieved document excerpts to answer the user's question.
-If the answer isn't contained in the excerpts, use your general knowledge.
-
-Documents:
-{documents}
-
-Question:
-{query}
-
-Answer:
-'''
-    prompt = PromptTemplate(input_variables=["documents", "query"], template=template)
-    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
-    chain = LLMChain(llm=llm, prompt=prompt)
-    docs_text = "\n\n".join(
-        f"[Score: {d.metadata.get('relevance_score', 'N/A')}] {d.page_content}"
-        for d in reranked
+# Build QA chains
+def respond_with_docs(query, docs, vectordb):
+    initial = hybrid_retriever(query, docs, vectordb, k=5)
+    reranker = FlashrankRerank(client=Ranker(model_name="ms-marco-MiniLM-L-12-v2"),
+                                model="ms-marco-MiniLM-L-12-v2", top_n=5)
+    reranked = reranker.compress_documents(initial, query)
+    docs_text = "\n\n".join(f"[Score: {d.metadata.get('relevance_score')}]: {d.page_content}" for d in reranked)
+    prompt = PromptTemplate(
+        input_variables=["documents", "query"],
+        template=("You are an expert assistant. Use the following excerpts to answer. "
+                  "If not in excerpts, use your general knowledge.\n\nDocuments:\n{documents}\n\nQuestion:\n{query}\n\nAnswer:\n")
     )
-    return chain.run({"documents": docs_text, "query": query}), reranked
+    chain = LLMChain(llm=ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0), prompt=prompt)
+    return chain.run({"documents": docs_text, "query": query})
 
 def respond_general(query):
-    prompt = PromptTemplate(input_variables=["query"], template="You are a helpful assistant. Answer the question: {query}")
-    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
-    chain = LLMChain(llm=llm, prompt=prompt)
+    prompt = PromptTemplate(input_variables=["query"], template="You are a helpful assistant. Answer: {query}")
+    chain = LLMChain(llm=ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0), prompt=prompt)
     return chain.run({"query": query})
 
-if query:
-    if docs is not None and vectordb is not None:
-        with st.spinner("Retrieving relevant documents..."):
-            answer, reranked = respond_with_docs(query)
-        st.subheader("Answer")
-        st.write(answer)
-        if st.checkbox("Show retrieved passages"):
-            st.subheader("Top Passages")
-            for i, d in enumerate(reranked, start=1):
-                st.markdown(f"**Passage {i} (Score: {d.metadata.get('relevance_score', 'N/A')})**")
-                st.write(d.page_content)
-                st.markdown("---")
-    else:
-        with st.spinner("Generating response..."):
+# If PDF uploaded, process once
+docs = vectordb = None
+if uploaded_file is not None:
+    with st.spinner("Processing PDF..."):
+        text = extract_pdf_text(uploaded_file.read())
+        docs = split_documents(text)
+        vectordb = get_vector_store(docs)
+
+# Display chat history
+for q, a in st.session_state.history:
+    st.markdown(f"**You:** {q}")
+    st.markdown(f"**Bot:** {a}")
+    st.markdown("---")
+
+# Input
+query = st.text_input("Enter your question:")
+if st.button("Send") and query:
+    if vectordb and docs:
+        # simple keyword check: treat as doc QA if 'document' keyword present
+        if "document" in query.lower():
+            answer = respond_with_docs(query, docs, vectordb)
+        else:
             answer = respond_general(query)
-        st.subheader("Answer")
-        st.write(answer)
+    else:
+        answer = respond_general(query)
+    # Save and display
+    st.session_state.history.append((query, answer))
+    st.experimental_rerun()
