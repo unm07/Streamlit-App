@@ -1,7 +1,7 @@
 import fitz
 import streamlit as st
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from langchain_chroma import Chroma
+# from langchain_chroma import Chroma
 # from langchain_chroma import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.retrievers.bm25 import BM25Retriever
