@@ -22,23 +22,21 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 st.set_page_config(layout="wide")
 st.title("chatbot")
 
-# Sidebar upload (compact)
-with st.sidebar:
-    st.header("Upload PDF")
-    uploaded_file = st.file_uploader("PDF file", type=["pdf"], help="Optional: for document-based QA")
+# Sidebar: compact PDF upload
+with st.sidebar.expander("📄 Upload PDF (optional)", expanded=False):
+    uploaded_file = st.file_uploader("PDF file", type=["pdf"])
 
 # Initialize session state for history
 if "history" not in st.session_state:
-    st.session_state.history = []  # list of (query, answer)
+    st.session_state.history = []
 
-# Process PDF when uploaded
+# PDF processing functions
 @st.cache_data(show_spinner=False)
 def extract_pdf_text(pdf_bytes):
     text = ""
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
-        for page_num, page in enumerate(doc, start=1):
-            text += f"\n--- Page {page_num} ---\n"
-            text += page.get_text()
+        for i, page in enumerate(doc, 1):
+            text += f"\n--- Page {i} ---\n" + page.get_text()
     return text
 
 @st.cache_data(show_spinner=False)
@@ -47,46 +45,41 @@ def split_documents(text):
     return splitter.create_documents([text])
 
 @st.cache_resource(show_spinner=False)
-def get_vector_store(_docs):
+def get_vector_store(docs):
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    return FAISS.from_documents(_docs, embedding=embeddings)
+    return FAISS.from_documents(docs, embedding=embeddings)
 
-# Hybrid retrieval (dense + sparse)
+# Retrieval functions
 def hybrid_retriever(query, docs, vectordb, k=5):
-    vector_retriever = vectordb.as_retriever(search_kwargs={"k": k})
-    sparse_retriever = BM25Retriever.from_documents(
-        documents=docs,
-        bm25_params={"k1": 1.2, "b": 0.75},
-        k=k
-    )
-    return vector_retriever.get_relevant_documents(query) + sparse_retriever.get_relevant_documents(query)
+    vec = vectordb.as_retriever(search_kwargs={"k": k})
+    sparse = BM25Retriever.from_documents(documents=docs, bm25_params={"k1":1.2, "b":0.75}, k=k)
+    return vec.get_relevant_documents(query) + sparse.get_relevant_documents(query)
 
-# Build QA chains
+# QA chains
 def respond_with_docs(query, docs, vectordb):
-    initial = hybrid_retriever(query, docs, vectordb, k=5)
-    reranker = FlashrankRerank(client=Ranker(model_name="ms-marco-MiniLM-L-12-v2"),
-                                model="ms-marco-MiniLM-L-12-v2", top_n=5)
-    reranked = reranker.compress_documents(initial, query)
-    docs_text = "\n\n".join(f"[Score: {d.metadata.get('relevance_score')}]: {d.page_content}" for d in reranked)
+    results = hybrid_retriever(query, docs, vectordb)
+    reranker = FlashrankRerank(client=Ranker(model_name="ms-marco-MiniLM-L-12-v2"), model="ms-marco-MiniLM-L-12-v2", top_n=5)
+    reranked = reranker.compress_documents(results, query)
+    doc_text = "\n\n".join(f"[Score: {d.metadata.get('relevance_score')}]: {d.page_content}" for d in reranked)
     prompt = PromptTemplate(
-        input_variables=["documents", "query"],
+        input_variables=["documents","query"],
         template=("You are an expert assistant. Use the following excerpts to answer. "
-                  "If not in excerpts, use your general knowledge.\n\nDocuments:\n{documents}\n\nQuestion:\n{query}\n\nAnswer:\n")
+                  "If not present, use your knowledge.\n\nDocuments:\n{documents}\n\nQuestion:\n{query}\n\nAnswer:\n")
     )
     chain = LLMChain(llm=ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0), prompt=prompt)
-    return chain.run({"documents": docs_text, "query": query})
+    return chain.run({"documents": doc_text, "query": query})
 
 def respond_general(query):
     prompt = PromptTemplate(input_variables=["query"], template="You are a helpful assistant. Answer: {query}")
     chain = LLMChain(llm=ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0), prompt=prompt)
     return chain.run({"query": query})
 
-# If PDF uploaded, process once
+# Process PDF
 docs = vectordb = None
-if uploaded_file is not None:
+if uploaded_file:
     with st.spinner("Processing PDF..."):
         text = extract_pdf_text(uploaded_file.read())
-        docs = split_documents(text)
+        docs = split_documents(text);
         vectordb = get_vector_store(docs)
 
 # Display chat history
@@ -95,17 +88,16 @@ for q, a in st.session_state.history:
     st.markdown(f"**Bot:** {a}")
     st.markdown("---")
 
-# Input
-query = st.text_input("Enter your question:")
-if st.button("Send") and query:
-    if vectordb and docs:
-        # simple keyword check: treat as doc QA if 'document' keyword present
-        if "document" in query.lower():
-            answer = respond_with_docs(query, docs, vectordb)
-        else:
-            answer = respond_general(query)
+# Chat form
+with st.form(key="chat_form", clear_on_submit=True):
+    query = st.text_input("Enter your question:")
+    submit = st.form_submit_button("Send")
+
+if submit and query:
+    if docs and vectordb and "document" in query.lower():
+        answer = respond_with_docs(query, docs, vectordb)
     else:
         answer = respond_general(query)
-    # Save and display
     st.session_state.history.append((query, answer))
+    # Streamlit auto-reruns after form submit
     st.experimental_rerun()
