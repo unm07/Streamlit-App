@@ -24,7 +24,7 @@ st.set_page_config(layout="wide")
 st.title("chatbot with memory")
 
 # Sidebar: compact PDF upload
-with st.sidebar.expander("📄 Upload PDF (optional)", expanded=False):
+with st.sidebar.expander("📄 Upload PDF", expanded=False):
     uploaded_file = st.file_uploader("PDF file", type=["pdf"])
 
 # Initialize session state for history and memory
@@ -111,8 +111,8 @@ if uploaded_file:
 
 # Display chat history
 for q, a in st.session_state.history:
-    st.markdown(f"**You:** {q}")
-    st.markdown(f"**Bot:** {a}")
+    st.markdown(f"**User:** {q}")
+    st.markdown(f"**AI Bot🤖:** {a}")
     st.markdown("---")
 
 # Chat form
