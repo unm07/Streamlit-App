@@ -112,7 +112,7 @@ if uploaded_file:
 # Display chat history
 for q, a in st.session_state.history:
     st.markdown(f"**User:** {q}")
-    st.markdown(f"**AI Bot🤖:** {a}")
+    st.markdown(f"**Chatbot:** {a}")
     st.markdown("---")
 
 # Chat form
