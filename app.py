@@ -4,14 +4,13 @@ from dotenv import load_dotenv
 import fitz
 import streamlit as st
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-# from langchain_chroma import Chroma
+from langchain_chroma import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.retrievers.bm25 import BM25Retriever
 from flashrank import Ranker
 from langchain.retrievers.document_compressors import FlashrankRerank
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
-from langchain.vectorstores import FAISS
 
 # Load environment variables
 load_dotenv()
@@ -42,8 +41,7 @@ def split_documents(text):
 @st.cache_resource(show_spinner=False)
 def get_vector_store(_docs):
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    # vectordb = Chroma.from_documents(documents=_docs, embedding=embeddings)
-    vectordb = FAISS.from_documents(_docs, embedding=embeddings)
+    vectordb = Chroma.from_documents(documents=_docs, embedding=embeddings)
     return vectordb
 
 # hybrid retrieval(dense+sparse)
@@ -79,9 +77,21 @@ if uploaded_file is not None:
         reranked = reranker.compress_documents(initial_docs, query)
 
         # Prepare prompt
+#         template = """
+# You are an expert assistant. Use the following retrieved document excerpts to answer the user's question.
+# If the answer isn't contained in the excerpts, say "I don't know."
+
+# Documents:
+# {documents}
+
+# Question:
+# {query}
+
+# Answer:
+# """
         template = """
 You are an expert assistant. Use the following retrieved document excerpts to answer the user's question.
-If the answer isn't contained in the excerpts, say "I don't know."
+If the excerpts are empty, answer the question using your own knowledge.
 
 Documents:
 {documents}
