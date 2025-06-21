@@ -1,7 +1,9 @@
+import os
+import re
+from dotenv import load_dotenv
 import fitz
 import streamlit as st
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-# from langchain_chroma import Chroma
 # from langchain_chroma import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.retrievers.bm25 import BM25Retriever
@@ -10,7 +12,6 @@ from langchain.retrievers.document_compressors import FlashrankRerank
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain.vectorstores import FAISS
-from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
@@ -74,17 +75,13 @@ if uploaded_file is not None:
 
         # Rerank
         flashrank_client = Ranker(model_name="ms-marco-MiniLM-L-12-v2")
-        reranker = FlashrankRerank(
-            client=flashrank_client,
-            model="ms-marco-MiniLM-L-12-v2",
-            top_n=5
-        )
+        reranker = FlashrankRerank(client=flashrank_client, model="ms-marco-MiniLM-L-12-v2", top_n=5)
         reranked = reranker.compress_documents(initial_docs, query)
 
         # Prepare prompt
         template = """
 You are an expert assistant. Use the following retrieved document excerpts to answer the user's question.
-If the excerpts are empty, answer the question using your own knowledge.
+If the answer isn't contained in the excerpts, use your general knowledge."
 
 Documents:
 {documents}
